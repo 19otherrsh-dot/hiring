@@ -1,0 +1,16 @@
+{
+  "name": "HireFlow AI",
+  "short_name": "HireFlow",
+  "description": "AI-First, Offline-Ready Hiring Platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0e1a",
+  "theme_color": "#6366f1",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

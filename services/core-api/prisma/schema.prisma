@@ -1,0 +1,398 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id             String         @id @default(uuid())
+  email          String         @unique
+  passwordHash   String
+  name           String?
+  role           Role           @default(JOB_SEEKER)
+  
+  // Organization Context
+  organizationId String?
+  organization   Organization?  @relation(fields: [organizationId], references: [id])
+  departmentId   String?
+  department     Department?    @relation(fields: [departmentId], references: [id])
+  
+  profile        Profile?
+  jobsPosted     Job[]          @relation("RecruiterJobs")
+  applications   Application[]
+  notifications  Notification[]
+  referrals      Referral[]     @relation("ReferrerReferrals")
+  nurtureSequences NurtureSequence[]
+  auditLogs      AuditLog[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+enum Role {
+  JOB_SEEKER
+  ORG_ADMIN
+  RECRUITER
+  HIRING_MANAGER
+  INTERVIEWER
+  COORDINATOR
+  SYSTEM_ADMIN
+}
+
+model Profile {
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id])
+  resumeUrl       String?
+  resumeFileUrl   String?
+  resumeText      String?
+  skills          String[]
+  experienceYears Int       @default(0)
+  educationTier   String?
+  location        String?
+  headline        String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Job {
+  id              String        @id @default(uuid())
+  title           String
+  description     String
+  skillsRequired  String[]
+  location        String
+  salaryRange     String?
+  seniority       String?
+  industry        String?
+  
+  // Enterprise context
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id])
+  departmentId    String?
+  department      Department?   @relation(fields: [departmentId], references: [id])
+  
+  recruiterId     String
+  recruiter       User          @relation("RecruiterJobs", fields: [recruiterId], references: [id])
+  applications    Application[]
+  pipelineStages  PipelineStage[]
+  workflowTriggers WorkflowTrigger[]
+  referrals       Referral[]
+  blindScreening  Boolean       @default(false)
+  isActive        Boolean       @default(true)
+  expiresAt       DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model Application {
+  id             String           @id @default(uuid())
+  jobId          String
+  job            Job              @relation(fields: [jobId], references: [id])
+  applicantId    String
+  applicant      User             @relation(fields: [applicantId], references: [id])
+  status         AppStatus        @default(APPLIED)
+  matchScore     Float?
+  coverNote      String?
+  interviews     Interview[]
+  activities     Activity[]
+  offerLetter    OfferLetter?
+  demographics   DemographicData?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([jobId, applicantId])
+}
+
+enum AppStatus {
+  APPLIED
+  REVIEWING
+  SHORTLISTED
+  INTERVIEW
+  REJECTED
+  HIRED
+}
+
+model Interview {
+  id              String          @id @default(uuid())
+  applicationId   String
+  application     Application     @relation(fields: [applicationId], references: [id])
+  scheduledAt     DateTime
+  durationMinutes Int             @default(30)
+  type            InterviewType   @default(VIDEO)
+  meetingLink     String?
+  notes           String?
+  status          InterviewStatus @default(SCHEDULED)
+  scorecards      Scorecard[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+enum InterviewType {
+  VIDEO
+  PHONE
+  ONSITE
+}
+
+enum InterviewStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  linkUrl   String?
+  createdAt DateTime @default(now())
+}
+
+// ─── Phase 3A: Interview Scorecards ──────────────────────────────────────────
+
+model Scorecard {
+  id            String    @id @default(uuid())
+  interviewId   String
+  interview     Interview @relation(fields: [interviewId], references: [id])
+  evaluatorId   String
+  technicalScore    Int?      // 1-5
+  communicationScore Int?     // 1-5
+  problemSolvingScore Int?    // 1-5
+  cultureFitScore    Int?     // 1-5
+  overallScore       Int?     // 1-5
+  strengths     String?
+  weaknesses    String?
+  recommendation String?     // STRONG_YES, YES, NEUTRAL, NO, STRONG_NO
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// ─── Phase 3A: Candidate Activity Log ────────────────────────────────────────
+
+model Activity {
+  id            String   @id @default(uuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id])
+  actorId       String?
+  type          String       // STATUS_CHANGE, NOTE, EMAIL_SENT, INTERVIEW_SCHEDULED, SCORECARD_SUBMITTED, FILE_UPLOADED
+  title         String
+  description   String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+}
+
+// ─── Phase 3A: Customizable Pipeline Stages ──────────────────────────────────
+
+model PipelineStage {
+  id        String   @id @default(uuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id])
+  name      String
+  color     String   @default("#6366f1")
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PHASE 3B: ENTERPRISE FEATURES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Employee Referral System ────────────────────────────────────────────────
+
+model Referral {
+  id             String         @id @default(uuid())
+  referrerId     String
+  referrer       User           @relation("ReferrerReferrals", fields: [referrerId], references: [id])
+  jobId          String
+  job            Job            @relation(fields: [jobId], references: [id])
+  candidateName  String
+  candidateEmail String
+  referralCode   String         @unique @default(uuid())
+  notes          String?
+  status         ReferralStatus @default(PENDING)
+  bonus          Float?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+enum ReferralStatus {
+  PENDING
+  CONTACTED
+  APPLIED
+  INTERVIEWING
+  HIRED
+  REJECTED
+}
+
+// ─── Offer Letter Management ─────────────────────────────────────────────────
+
+model OfferLetter {
+  id             String      @id @default(uuid())
+  applicationId  String      @unique
+  application    Application @relation(fields: [applicationId], references: [id])
+  salary         Float
+  currency       String      @default("USD")
+  startDate      DateTime
+  expiresAt      DateTime
+  benefits       String?
+  jobTitle       String
+  status         OfferStatus @default(DRAFT)
+  approvedById   String?
+  pdfUrl         String?
+  candidateNotes String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+}
+
+enum OfferStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SENT
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+// ─── DEI & Compliance ────────────────────────────────────────────────────────
+
+model DemographicData {
+  id               String      @id @default(uuid())
+  applicationId    String      @unique
+  application      Application @relation(fields: [applicationId], references: [id])
+  gender           String?
+  ethnicity        String?
+  veteranStatus    String?
+  disabilityStatus String?
+  createdAt        DateTime    @default(now())
+}
+
+// ─── Candidate Nurture Sequences ─────────────────────────────────────────────
+
+model NurtureSequence {
+  id          String             @id @default(uuid())
+  name        String
+  description String?
+  recruiterId String
+  recruiter   User               @relation(fields: [recruiterId], references: [id])
+  isActive    Boolean            @default(true)
+  steps       NurtureStep[]
+  enrollments NurtureEnrollment[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+}
+
+model NurtureStep {
+  id         String          @id @default(uuid())
+  sequenceId String
+  sequence   NurtureSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  order      Int             @default(0)
+  subject    String
+  body       String
+  delayDays  Int             @default(1)
+  createdAt  DateTime        @default(now())
+}
+
+model NurtureEnrollment {
+  id             String          @id @default(uuid())
+  sequenceId     String
+  sequence       NurtureSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  candidateEmail String
+  candidateName  String?
+  currentStep    Int             @default(0)
+  status         NurtureStatus   @default(ACTIVE)
+  nextSendAt     DateTime?
+  lastSentAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+enum NurtureStatus {
+  ACTIVE
+  COMPLETED
+  PAUSED
+  UNSUBSCRIBED
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PHASE 4: ENTERPRISE GOVERNANCE & AUTOMATION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+model Organization {
+  id            String        @id @default(uuid())
+  name          String
+  domain        String?       @unique
+  website       String?
+  description   String?
+  logoUrl       String?
+  settings      Json?         // Custom branding, global defaults
+  users         User[]
+  departments   Department[]
+  jobs          Job[]
+  auditLogs     AuditLog[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Department {
+  id            String        @id @default(uuid())
+  name          String
+  organizationId String
+  organization  Organization  @relation(fields: [organizationId], references: [id])
+  users         User[]
+  jobs          Job[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model WorkflowTrigger {
+  id            String          @id @default(uuid())
+  jobId         String
+  job           Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stageId       String?         // Optional: trigger on entering a specific stage
+  stageName     String?         // Helper for stage tracking
+  event         WorkflowEvent
+  actionType    WorkflowAction
+  templateId    String?         // Reference to email template
+  metadata      Json?           // Action configs (e.g., Slack channel ID)
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+enum WorkflowEvent {
+  APPLICATION_RECEIVED
+  STAGE_ENTERED
+  INTERVIEW_SCHEDULED
+  OFFER_SENT
+  OFFER_ACCEPTED
+  CANDIDATE_HIRED
+}
+
+enum WorkflowAction {
+  SEND_EMAIL
+  SEND_SLACK_NOTIF
+  ASSIGN_TASK
+  SEND_ASSESSMENT
+}
+
+model AuditLog {
+  id             String       @id @default(uuid())
+  action         String
+  entityType     String
+  entityId       String
+  actorId        String
+  actor          User         @relation(fields: [actorId], references: [id])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  metadata       Json?
+  ipAddress      String?
+  createdAt      DateTime     @default(now())
+}
